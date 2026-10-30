@@ -1,0 +1,23 @@
+# Base de datos local: contiene cuentas, reportes y mensajes
+.ecoruta_data/
+*.db
+*.sqlite
+*.sqlite3
+
+# Archivos generados por Python, Flet y Flutter
+__pycache__/
+*.py[cod]
+.venv/
+.uv/
+build/
+src/build/
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+
+# Archivos temporales y secretos locales
+.env
+.env.*
+.DS_Store
+Thumbs.db
+*.log

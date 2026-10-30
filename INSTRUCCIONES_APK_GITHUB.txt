@@ -1,0 +1,74 @@
+ECORUTA - GENERAR EL APK CON GITHUB ACTIONS
+===========================================
+
+Esta copia agrega una compilación automatizada para Android. Conserva el
+proyecto Python/Flet y no requiere convertirlo a Kotlin ni abrir Android Studio.
+
+ANTES DE EMPEZAR
+----------------
+1. Extrae este ZIP en una carpeta de tu PC.
+2. Dentro de la carpeta principal deben verse pyproject.toml, requirements.txt,
+   README.md, src y la carpeta .github.
+3. No subas .ecoruta_data ni bases de datos locales. El .gitignore ya las excluye.
+4. Crea en GitHub un repositorio NUEVO y PRIVADO llamado, por ejemplo,
+   EcoRuta-Movil-Profesional.
+5. Al crearlo, déjalo vacío: no agregues README, .gitignore ni licencia.
+
+SUBIR EL PROYECTO DESDE CMD
+---------------------------
+Abre CMD en la carpeta donde está pyproject.toml. Para hacerlo desde el
+Explorador de archivos, abre esa carpeta, haz clic en la barra de direcciones,
+escribe cmd y presiona Enter.
+
+Ejecuta:
+
+git init
+git add .
+git commit -m "Preparar EcoRuta para APK Android"
+git branch -M main
+
+Después agrega la dirección HTTPS de TU repositorio. Sustituye TU_USUARIO:
+
+git remote add origin https://github.com/TU_USUARIO/EcoRuta-Movil-Profesional.git
+git push -u origin main
+
+Si git commit dice que no conoce tu nombre o correo, configúralos así:
+
+git config --global user.name "Tu nombre"
+git config --global user.email "el-correo-de-tu-cuenta-github"
+
+Luego repite git commit y git push.
+
+EJECUTAR LA COMPILACIÓN
+-----------------------
+1. Abre tu repositorio privado en GitHub.
+2. Entra en la pestaña Actions.
+3. Selecciona "Generar APK de EcoRuta".
+4. Pulsa "Run workflow" y confirma con el botón verde.
+5. Abre la ejecución que aparezca y espera a que finalice.
+6. Si aparece una marca verde, busca la sección Artifacts.
+7. Descarga "EcoRuta-APK".
+8. Extrae el archivo y localiza el archivo terminado en .apk.
+
+INSTALAR EN EL TELÉFONO
+-----------------------
+Copia el APK al teléfono Android, ábrelo y autoriza la instalación desde esa
+fuente cuando Android lo solicite. Abre EcoRuta y concede los permisos de
+cámara y ubicación cuando la aplicación los pida.
+
+SI LA COMPILACIÓN FALLA
+-----------------------
+Abre la ejecución fallida en Actions, selecciona el paso en rojo y copia el
+mensaje de error completo. No cambies main.py ni las dependencias a ciegas:
+primero revisaremos el error exacto del servidor.
+
+NOTAS IMPORTANTES
+-----------------
+- GitHub compila en Linux remoto. No usa la instalación local de Flutter de
+  Windows ni la ruta C:\Users\... que provocaba el error anterior.
+- Usa un repositorio privado: el proyecto incluye credenciales de administrador
+  de demostración en su código y README.
+- SQLite almacena datos localmente en cada teléfono. Compilar el APK no convierte
+  la base de datos en un servicio compartido entre dispositivos.
+- La compilación genera un APK instalable; no publica la app automáticamente
+  en Google Play.

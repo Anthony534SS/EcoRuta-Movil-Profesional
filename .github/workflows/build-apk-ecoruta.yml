@@ -1,0 +1,42 @@
+name: Generar APK de EcoRuta
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "src/**"
+      - "pyproject.toml"
+      - "requirements.txt"
+      - ".github/workflows/build-apk-ecoruta.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-apk:
+    name: Compilar APK Android
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+
+    steps:
+      - name: Descargar el proyecto
+        uses: actions/checkout@v6
+
+      - name: Compilar EcoRuta con Flet
+        id: build
+        uses: flet-dev/flet-build-action@v1
+        with:
+          target: apk
+          working-directory: .
+          runner-python-version: "3.14"
+          bundled-python-version: "3.14"
+          build-number: ${{ github.run_number }}
+
+      - name: Publicar el resultado descargable
+        uses: actions/upload-artifact@v7
+        with:
+          name: EcoRuta-APK
+          path: ${{ steps.build.outputs.archive-path }}
+          archive: false
+          if-no-files-found: error

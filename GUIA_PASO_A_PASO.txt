@@ -1,0 +1,131 @@
+ECORUTA MÓVIL PROFESIONAL - VERSIÓN CON ADMINISTRADOR
+======================================================
+
+ESTRUCTURA DEL PROYECTO
+-----------------------
+EcoRuta_Movil_Profesional_ADMIN/
+  pyproject.toml
+  requirements.txt
+  README.md
+  GUIA_PASO_A_PASO.txt
+  src/
+    main.py
+    base_datos.py
+    assets/
+      icon.png
+      splash.png
+
+NOVEDADES DE ESTA VERSIÓN
+-------------------------
+- Inicio de sesión normal para usuarios.
+- Inicio de sesión independiente para administrador.
+- Panel del administrador.
+- El administrador puede consultar todos los usuarios.
+- El administrador puede consultar todos los reportes.
+- El administrador puede cambiar el estado de un reporte:
+  Pendiente / En revisión / Atendido.
+- Cada usuario normal ve sus propios reportes en la sección Reportes.
+- El usuario puede editar nombre, correo y contraseña.
+- Opción visible para cerrar sesión.
+- La base anterior se actualiza automáticamente agregando el rol de usuario.
+
+CREDENCIALES DEL ADMINISTRADOR
+------------------------------
+Correo: admin@ecoruta.mx
+Contraseña: EcoRuta2026
+
+Estas credenciales son para el prototipo académico.
+
+PASO 1 - INSTALAR PAQUETES EN THONNY
+-------------------------------------
+En Thonny abre: Herramientas > Administrar paquetes.
+Instala uno por uno:
+
+1. flet
+2. flet-camera
+3. flet-geolocator
+4. flet-permission-handler
+
+No instales sqlite3: Python ya lo incluye.
+
+PASO 2 - ABRIR EL PROYECTO EN THONNY
+-------------------------------------
+Abre:
+
+src/main.py
+
+No muevas main.py fuera de src.
+base_datos.py y la carpeta assets deben permanecer dentro de src.
+
+PASO 3 - PROBAR COMO USUARIO
+----------------------------
+1. Presiona F5.
+2. Crea una cuenta o inicia sesión.
+3. En Inicio puedes crear un reporte.
+4. En Reportar agrega fotografía y coordenadas GPS.
+5. En Reportes verás los reportes de tu cuenta.
+6. En Chat puedes escribir y compartir reportes.
+7. En Perfil pulsa "Editar perfil" para cambiar nombre, correo o contraseña.
+8. En Perfil pulsa "Cerrar sesión" para volver al acceso principal.
+
+PASO 4 - PROBAR COMO ADMINISTRADOR
+----------------------------------
+1. En la pantalla inicial pulsa "Acceso de administrador".
+2. Usa:
+   Correo: admin@ecoruta.mx
+   Contraseña: EcoRuta2026
+3. En Resumen verás estadísticas generales.
+4. En Reportes verás los reportes de todos los usuarios.
+5. Puedes cambiar cada reporte a Pendiente, En revisión o Atendido.
+6. En Usuarios verás las cuentas registradas y el número de reportes de cada una.
+7. En Perfil administrador puedes cerrar sesión.
+
+PASO 5 - CÁMARA Y GPS
+---------------------
+En Android:
+- Cámara usa la cámara del teléfono.
+- GPS obtiene la ubicación del dispositivo.
+
+En PC:
+- La cámara directa se sustituye por seleccionar una imagen.
+- El GPS depende de los permisos y servicios de ubicación de Windows.
+
+PASO 6 - CREAR EL APK
+---------------------
+Usa CMD o PowerShell, NO la consola >>> de Python.
+Abre la terminal en la carpeta donde están pyproject.toml y src.
+
+Instala Flet completo si hace falta:
+
+python -m pip install "flet[all]"
+
+Después ejecuta:
+
+flet build apk
+
+Si Flutter solicita instalar Flutter SDK o Android SDK, acepta con y.
+Para compilar Android también necesitas Git disponible en el PATH.
+
+PASO 7 - INSTALAR EN ANDROID
+----------------------------
+Cuando termine la compilación, busca el APK dentro de build/apk.
+Cópialo al teléfono, ábrelo e instálalo.
+Android puede pedir permiso para instalar aplicaciones de esa fuente.
+Al abrir EcoRuta acepta los permisos de cámara y ubicación.
+
+BASE DE DATOS
+-------------
+La base se llama ecoruta.db y se crea automáticamente.
+Tablas:
+- usuarios
+- reportes
+- mensajes
+
+La tabla usuarios incluye el campo rol para distinguir usuario y administrador.
+
+IMPORTANTE SOBRE VARIOS TELÉFONOS
+---------------------------------
+SQLite guarda los datos localmente en cada instalación. Por eso, dos teléfonos
+no comparten automáticamente usuarios, reportes ni chat. Para una versión real
+multiusuario se necesita un backend remoto, por ejemplo Firebase, Supabase o
+una API propia con una base de datos en servidor.

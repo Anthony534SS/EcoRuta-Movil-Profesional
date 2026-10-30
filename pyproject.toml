@@ -1,0 +1,47 @@
+[project]
+name = "ecoruta"
+version = "1.1.0"
+description = "Aplicación móvil EcoRuta con usuarios, administrador, cámara, GPS, reportes y chat."
+requires-python = ">=3.10"
+dependencies = [
+    "flet>=1.0,<1.1",
+    "flet-camera>=1.0,<1.1",
+    "flet-geolocator>=1.0,<1.1",
+    "flet-permission-handler>=1.0,<1.1",
+]
+
+[tool.flet]
+product = "EcoRuta"
+org = "mx.ecoruta"
+bundle_id = "mx.ecoruta.app"
+permissions = ["camera"]
+icon_background = "#FFFFFF"
+
+[tool.flet.app]
+path = "src"
+module = "main"
+
+[tool.flet.splash]
+color = "#F7F9F7"
+dark_color = "#F7F9F7"
+
+[tool.flet.android.feature]
+"android.hardware.camera" = false
+"android.hardware.location.gps" = false
+
+[tool.flet.boot_screen]
+name = "flet"
+
+[tool.flet.boot_screen.flet]
+theme_mode = "light"
+bgcolor_light = "#F7F9F7"
+spinner_color_light = "#168A4A"
+spinner_size = 28
+startup_message = "Iniciando EcoRuta..."
+
+[tool.flet.android.permission]
+"android.permission.ACCESS_FINE_LOCATION" = true
+"android.permission.ACCESS_COARSE_LOCATION" = true
+
+[tool.flet.ios.info]
+NSLocationWhenInUseUsageDescription = "EcoRuta usa tu ubicación para registrar las coordenadas de los reportes."
