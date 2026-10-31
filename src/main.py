@@ -20,6 +20,7 @@ from base_datos import (
     obtener_reportes,
     obtener_reporte,
     actualizar_estado_reporte,
+    eliminar_reporte,
     enviar_mensaje,
     obtener_mensajes,
     obtener_estadisticas,
@@ -39,6 +40,7 @@ TEXTO_SECUNDARIO = "#66736B"
 BLANCO = "#FFFFFF"
 BORDE = "#DDE8E1"
 ROJO_SUAVE = "#FFF1F1"
+ROJO = "#B3261E"
 
 ASSETS = Path(__file__).parent / "assets"
 
@@ -1355,6 +1357,157 @@ def main(page: ft.Page):
             )
         )
 
+    def pantalla_eliminar_reportes(es_admin=False):
+        usuario = usuario_actual["datos"]
+        if es_admin:
+            reportes = obtener_reportes()
+            subtitulo = "Elimina cualquier reporte registrado por los usuarios."
+        else:
+            reportes = obtener_reportes(usuario_id=usuario["id"])
+            subtitulo = "Elimina uno de tus reportes registrados."
+
+        def confirmar_eliminacion(reporte_id):
+            def borrar(_):
+                page.pop_dialog()
+                usuario_id = None if es_admin else usuario["id"]
+                correcto = eliminar_reporte(reporte_id, usuario_id)
+                if correcto:
+                    snackbar(f"Reporte #{reporte_id} eliminado correctamente.")
+                    mostrar_eliminacion_reportes(es_admin)
+                else:
+                    snackbar("No se pudo eliminar el reporte.", error=True)
+
+            dialogo = ft.AlertDialog(
+                modal=True,
+                title=ft.Text("Eliminar reporte"),
+                content=ft.Text(
+                    f"¿Seguro que deseas eliminar el reporte #{reporte_id}? "
+                    "Esta acción no se puede deshacer."
+                ),
+                actions=[
+                    ft.TextButton(
+                        content="Cancelar",
+                        on_click=lambda e: page.pop_dialog(),
+                    ),
+                    ft.TextButton(
+                        content="Eliminar",
+                        style=ft.ButtonStyle(color=ROJO),
+                        on_click=borrar,
+                    ),
+                ],
+            )
+            page.show_dialog(dialogo)
+
+        controles = [
+            titulo_seccion("Eliminar reporte", subtitulo),
+        ]
+
+        if not reportes:
+            controles.append(
+                tarjeta(
+                    ft.Column(
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        spacing=8,
+                        controls=[
+                            ft.Icon(ft.Icons.DELETE_OUTLINE, size=46, color=VERDE),
+                            ft.Text(
+                                "No hay reportes para eliminar",
+                                weight=ft.FontWeight.BOLD,
+                                color=TEXTO,
+                            ),
+                            ft.Text(
+                                "Los reportes que registres aparecerán aquí.",
+                                size=12,
+                                color=TEXTO_SECUNDARIO,
+                                text_align=ft.TextAlign.CENTER,
+                            ),
+                        ],
+                    )
+                )
+            )
+        else:
+            for reporte in reportes:
+                datos = ft.Column(
+                    expand=True,
+                    spacing=4,
+                    controls=[
+                        ft.Text(
+                            f"Reporte #{reporte['id']}",
+                            size=16,
+                            weight=ft.FontWeight.BOLD,
+                            color=TEXTO,
+                        ),
+                        ft.Text(
+                            reporte.get("usuario_nombre", "Usuario"),
+                            size=11,
+                            color=TEXTO_SECUNDARIO,
+                        ),
+                        ft.Text(
+                            f"Estado: {reporte['estado']}",
+                            size=11,
+                            color=TEXTO_SECUNDARIO,
+                        ),
+                        ft.Text(
+                            reporte["fecha_hora"],
+                            size=10,
+                            color=TEXTO_SECUNDARIO,
+                        ),
+                    ],
+                )
+
+                controles.append(
+                    tarjeta(
+                        ft.Column(
+                            spacing=10,
+                            controls=[
+                                ft.Row(
+                                    controls=[
+                                        ft.Image(
+                                            src=reporte["imagen"],
+                                            width=92,
+                                            height=92,
+                                            fit=ft.BoxFit.COVER,
+                                            border_radius=12,
+                                        ),
+                                        datos,
+                                    ],
+                                    spacing=12,
+                                ),
+                                ft.OutlinedButton(
+                                    content="Eliminar reporte",
+                                    icon=ft.Icons.DELETE_OUTLINE,
+                                    style=ft.ButtonStyle(
+                                        color=ROJO,
+                                        side=ft.BorderSide(1, ROJO),
+                                    ),
+                                    on_click=lambda e, rid=reporte["id"]: confirmar_eliminacion(rid),
+                                ),
+                            ],
+                        )
+                    )
+                )
+
+        controles.append(
+            ft.OutlinedButton(
+                content="Volver al perfil",
+                icon=ft.Icons.ARROW_BACK,
+                on_click=lambda e: mostrar_admin(3) if es_admin else mostrar_pantalla(4),
+            )
+        )
+
+        return contenedor_pantalla(controles)
+
+    def mostrar_eliminacion_reportes(es_admin=False):
+        page.clean()
+        if es_admin:
+            page.appbar = barra_superior_admin("Eliminar reportes")
+            page.navigation_bar = crear_nav_admin(3)
+        else:
+            page.appbar = barra_superior("Eliminar reporte", mostrar_perfil=False)
+            page.navigation_bar = crear_nav(4)
+        page.add(pantalla_eliminar_reportes(es_admin))
+        page.update()
+
     def pantalla_perfil():
         usuario = usuario_actual["datos"]
         stats = obtener_estadisticas(usuario["id"])
@@ -1396,6 +1549,13 @@ def main(page: ft.Page):
                                 leading=ft.Icon(ft.Icons.GPS_FIXED, color=VERDE),
                                 title=ft.Text("GPS y cámara"),
                                 subtitle=ft.Text("Integrados para registrar reportes"),
+                            ),
+                            ft.Divider(height=1),
+                            ft.ListTile(
+                                leading=ft.Icon(ft.Icons.DELETE_OUTLINE, color=ROJO),
+                                title=ft.Text("Eliminar reporte", color=ROJO),
+                                subtitle=ft.Text("Selecciona uno de tus reportes para eliminarlo"),
+                                on_click=lambda e: mostrar_eliminacion_reportes(False),
                             ),
                         ]
                     )
@@ -1786,6 +1946,13 @@ def main(page: ft.Page):
                                 title=ft.Text("Tipo de cuenta"),
                                 subtitle=ft.Text("Administrador de EcoRuta"),
                             ),
+                            ft.Divider(height=1),
+                            ft.ListTile(
+                                leading=ft.Icon(ft.Icons.DELETE_OUTLINE, color=ROJO),
+                                title=ft.Text("Eliminar reporte", color=ROJO),
+                                subtitle=ft.Text("Elimina cualquier reporte registrado por los usuarios"),
+                                on_click=lambda e: mostrar_eliminacion_reportes(True),
+                            ),
                         ]
                     )
                 ),
@@ -1850,3 +2017,4 @@ def main(page: ft.Page):
 
 if __name__ == "__main__":
     ft.run(main, assets_dir=str(ASSETS))
+

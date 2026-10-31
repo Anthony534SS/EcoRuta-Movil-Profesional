@@ -389,18 +389,66 @@ def obtener_estadisticas(usuario_id=None):
 def obtener_estadisticas_admin():
     conexion = conectar()
     cursor = conexion.cursor()
+
     cursor.execute("SELECT COUNT(*) AS total FROM usuarios WHERE rol = 'usuario'")
     usuarios = cursor.fetchone()["total"]
+
     cursor.execute("SELECT COUNT(*) AS total FROM reportes")
     reportes = cursor.fetchone()["total"]
+
     cursor.execute("SELECT COUNT(*) AS total FROM reportes WHERE estado = 'Pendiente'")
     pendientes = cursor.fetchone()["total"]
+
     cursor.execute("SELECT COUNT(*) AS total FROM reportes WHERE estado = 'Atendido'")
     atendidos = cursor.fetchone()["total"]
+
     conexion.close()
+
     return {
         "usuarios": usuarios,
         "reportes": reportes,
         "pendientes": pendientes,
         "atendidos": atendidos,
     }
+
+
+def eliminar_reporte(reporte_id, usuario_id=None):
+    conexion = conectar()
+    cursor = conexion.cursor()
+
+    try:
+        if usuario_id is None:
+            cursor.execute(
+                "SELECT id FROM reportes WHERE id = ?",
+                (reporte_id,),
+            )
+        else:
+            cursor.execute(
+                "SELECT id FROM reportes WHERE id = ? AND usuario_id = ?",
+                (reporte_id, usuario_id),
+            )
+
+        reporte = cursor.fetchone()
+
+        if not reporte:
+            return False
+
+        cursor.execute(
+            "DELETE FROM mensajes WHERE reporte_id = ?",
+            (reporte_id,),
+        )
+
+        cursor.execute(
+            "DELETE FROM reportes WHERE id = ?",
+            (reporte_id,),
+        )
+
+        conexion.commit()
+        return cursor.rowcount > 0
+
+    except Exception:
+        conexion.rollback()
+        return False
+
+    finally:
+        conexion.close()
