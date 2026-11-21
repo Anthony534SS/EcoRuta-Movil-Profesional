@@ -26,6 +26,12 @@ from cliente_api import (
     obtener_estadisticas_admin,
     ADMIN_EMAIL,
     ADMIN_PASSWORD,
+    obtener_categorias,
+    obtener_areas,
+    asignar_area,
+    obtener_seguimiento,
+    obtener_ultimo_error_api,
+    cerrar_sesion,
 )
 
 VERDE = "#168A4A"
@@ -41,6 +47,28 @@ ROJO_SUAVE = "#FFF1F1"
 ROJO = "#B3261E"
 
 ASSETS = Path(__file__).parent / "assets"
+
+
+def texto_coordenadas(reporte):
+    latitud = reporte.get("latitud")
+    longitud = reporte.get("longitud")
+    if latitud is None or longitud is None:
+        return "Coordenadas no disponibles"
+    try:
+        return f"{float(latitud):.5f}, {float(longitud):.5f}"
+    except (TypeError, ValueError):
+        return "Coordenadas no disponibles"
+
+
+def url_mapa_reporte(reporte):
+    latitud = reporte.get("latitud")
+    longitud = reporte.get("longitud")
+    if latitud is None or longitud is None:
+        return "https://www.google.com/maps"
+    return (
+        "https://www.google.com/maps/search/?api=1&query="
+        f"{latitud},{longitud}"
+    )
 
 
 def main(page: ft.Page):
@@ -257,7 +285,10 @@ def main(page: ft.Page):
             )
 
             if not usuario:
-                snackbar("Correo o contraseña incorrectos.", error=True)
+                snackbar(
+                    obtener_ultimo_error_api() or "Correo o contraseña incorrectos.",
+                    error=True,
+                )
                 return
 
             usuario_actual["datos"] = usuario
@@ -378,7 +409,7 @@ def main(page: ft.Page):
 
             if not admin:
                 snackbar(
-                    "Credenciales de administrador incorrectas.",
+                    obtener_ultimo_error_api() or "Credenciales de administrador incorrectas.",
                     error=True,
                 )
                 return
@@ -715,6 +746,27 @@ def main(page: ft.Page):
 
     def pantalla_nuevo_reporte():
         foto_actual["bytes"] = None
+        categorias = obtener_categorias()
+        categoria = ft.Dropdown(
+            label="Categoría de residuos",
+            value=str(categorias[0]["id"]) if categorias else None,
+            options=[
+                ft.DropdownOption(key=str(item["id"]), text=item["nombre"])
+                for item in categorias
+            ],
+            expand=True,
+        )
+        descripcion = ft.TextField(
+            label="Descripción del problema",
+            hint_text="Describe qué residuos encontraste y dónde se encuentran.",
+            multiline=True,
+            min_lines=3,
+            max_lines=5,
+        )
+        ubicacion_referencia = ft.TextField(
+            label="Ubicación de referencia (opcional)",
+            hint_text="Calle, colonia, parque o punto cercano",
+        )
 
         latitud = ft.TextField(
             label="Latitud",
@@ -959,6 +1011,17 @@ def main(page: ft.Page):
                 )
                 return
 
+            if not categorias or not categoria.value:
+                snackbar(
+                    obtener_ultimo_error_api() or "No hay categorías disponibles en MySQL. Revisa la tabla categorias_residuos.",
+                    error=True,
+                )
+                return
+
+            if len((descripcion.value or "").strip()) < 5:
+                snackbar("Describe el problema con al menos 5 caracteres.", error=True)
+                return
+
             if not (latitud.value or "").strip() or not (
                 longitud.value or ""
             ).strip():
@@ -984,7 +1047,14 @@ def main(page: ft.Page):
                 lat,
                 lon,
                 usuario_actual["datos"]["id"],
+                categoria_id=int(categoria.value),
+                descripcion=descripcion.value,
+                ubicacion_referencia=ubicacion_referencia.value,
             )
+
+            if not rid:
+                snackbar(obtener_ultimo_error_api() or "No se pudo enviar el reporte.", error=True)
+                return
 
             snackbar(f"Reporte #{rid} enviado a la comunidad.")
             mostrar_pantalla(2)
@@ -995,7 +1065,13 @@ def main(page: ft.Page):
             [
                 titulo_seccion(
                     "Nuevo reporte",
-                    "Registra evidencia y ubicación del punto con residuos.",
+                    "Registra evidencia, categoría, descripción y ubicación del punto.",
+                ),
+                tarjeta(
+                    ft.Column(
+                        controls=[categoria, descripcion, ubicacion_referencia],
+                        spacing=10,
+                    )
                 ),
                 ft.Text(
                     "1. Evidencia fotográfica",
@@ -1097,11 +1173,53 @@ def main(page: ft.Page):
     # REPORTES COMUNITARIOS
     # ------------------------------------------------------------------
 
-    def tarjeta_resumen_reporte(reporte, compacta=False):
-        url_mapa = (
-            "https://www.google.com/maps/search/?api=1&query="
-            f"{reporte['latitud']},{reporte['longitud']}"
+    def mostrar_seguimiento_reporte(reporte_id):
+        historial = obtener_seguimiento(reporte_id)
+        controles_historial = [
+            ft.Text(f"Seguimiento del reporte #{reporte_id}", weight=ft.FontWeight.BOLD)
+        ]
+        if historial:
+            for elemento in historial:
+                estado = elemento.get("estado") or elemento.get("estado_nuevo") or "Actualización"
+                observacion = elemento.get("observacion") or elemento.get("observaciones") or "Sin observaciones"
+                fecha = str(elemento.get("fecha_hora") or "")
+                nombre = elemento.get("usuario_nombre") or "Sistema"
+                controles_historial.append(
+                    ft.Container(
+                        padding=10,
+                        border=ft.Border.all(1, BORDE),
+                        border_radius=10,
+                        content=ft.Column(
+                            spacing=3,
+                            controls=[
+                                ft.Text(estado, weight=ft.FontWeight.BOLD, color=VERDE_OSCURO),
+                                ft.Text(observacion, size=12),
+                                ft.Text(f"{nombre} · {fecha}", size=10, color=TEXTO_SECUNDARIO),
+                            ],
+                        ),
+                    )
+                )
+        else:
+            controles_historial.append(
+                ft.Text(
+                    obtener_ultimo_error_api() or "Todavía no hay actualizaciones de seguimiento.",
+                    color=TEXTO_SECUNDARIO,
+                )
+            )
+        page.show_dialog(
+            ft.AlertDialog(
+                modal=True,
+                title=ft.Text("Historial de seguimiento"),
+                content=ft.Container(
+                    width=360,
+                    content=ft.Column(controls=controles_historial, spacing=8, scroll=ft.ScrollMode.AUTO),
+                ),
+                actions=[ft.TextButton("Cerrar", on_click=lambda e: page.pop_dialog())],
+            )
         )
+
+    def tarjeta_resumen_reporte(reporte, compacta=False):
+        url_mapa = url_mapa_reporte(reporte)
 
         def compartir(e, rid=reporte["id"]):
             reporte_para_chat["id"] = rid
@@ -1200,6 +1318,21 @@ def main(page: ft.Page):
                     weight=ft.FontWeight.W_500,
                     color=TEXTO,
                 ),
+                ft.Text(
+                    f"Categoría: {reporte.get('categoria') or 'Sin categoría'}",
+                    size=11,
+                    color=VERDE_OSCURO,
+                ),
+                ft.Text(
+                    reporte.get("descripcion") or "",
+                    size=11,
+                    color=TEXTO_SECUNDARIO,
+                ),
+                ft.Text(
+                    reporte.get("ubicacion_referencia") or "",
+                    size=10,
+                    color=TEXTO_SECUNDARIO,
+                ),
                 ft.Row(
                     controls=[
                         ft.Icon(
@@ -1223,8 +1356,7 @@ def main(page: ft.Page):
                             color=VERDE,
                         ),
                         ft.Text(
-                            f"{reporte['latitud']:.5f}, "
-                            f"{reporte['longitud']:.5f}",
+                            texto_coordenadas(reporte),
                             size=11,
                             color=TEXTO_SECUNDARIO,
                         ),
@@ -1262,6 +1394,14 @@ def main(page: ft.Page):
         ]
 
         if es_autor or es_admin:
+            acciones_botones.insert(
+                0,
+                ft.OutlinedButton(
+                    content="Seguimiento",
+                    icon=ft.Icons.HISTORY,
+                    on_click=lambda e, rid=reporte["id"]: mostrar_seguimiento_reporte(rid),
+                ),
+            )
             acciones_botones.append(
                 ft.IconButton(
                     icon=ft.Icons.DELETE_OUTLINE,
@@ -1487,7 +1627,7 @@ def main(page: ft.Page):
                                                         size=12,
                                                     ),
                                                     ft.Text(
-                                                        f"{r.get('latitud', 0):.5f}, {r.get('longitud', 0):.5f}",
+                                                        texto_coordenadas(r),
                                                         size=10,
                                                         color=TEXTO_SECUNDARIO,
                                                     ),
@@ -1620,6 +1760,7 @@ def main(page: ft.Page):
     # ------------------------------------------------------------------
 
     def cerrar_sesion_general():
+        cerrar_sesion()
         usuario_actual["datos"] = None
         reporte_para_chat["id"] = None
         modo_admin["activo"] = False
@@ -2064,10 +2205,7 @@ def main(page: ft.Page):
         )
 
     def tarjeta_reporte_admin(reporte, compacta=False):
-        url_mapa = (
-            "https://www.google.com/maps/search/?api=1&query="
-            f"{reporte['latitud']},{reporte['longitud']}"
-        )
+        url_mapa = url_mapa_reporte(reporte)
 
         imagen = ft.Image(
             src=reporte["imagen"],
@@ -2118,13 +2256,27 @@ def main(page: ft.Page):
                     color=TEXTO_SECUNDARIO,
                 ),
                 ft.Text(
+                    f"Categoría: {reporte.get('categoria') or 'Sin categoría'}",
+                    size=11,
+                    color=VERDE_OSCURO,
+                ),
+                ft.Text(
+                    reporte.get("descripcion") or "",
+                    size=11,
+                    color=TEXTO_SECUNDARIO,
+                ),
+                ft.Text(
+                    f"Área: {reporte.get('area_responsable') or 'Sin asignar'}",
+                    size=10,
+                    color=TEXTO_SECUNDARIO,
+                ),
+                ft.Text(
                     reporte["fecha_hora"],
                     size=10,
                     color=TEXTO_SECUNDARIO,
                 ),
                 ft.Text(
-                    f"{reporte['latitud']:.5f}, "
-                    f"{reporte['longitud']:.5f}",
+                    texto_coordenadas(reporte),
                     size=10,
                     color=TEXTO_SECUNDARIO,
                 ),
@@ -2139,18 +2291,46 @@ def main(page: ft.Page):
                 )
             )
 
-        def cambiar_estado(estado):
-            if actualizar_estado_reporte(reporte["id"], estado):
-                snackbar(
-                    f"Reporte #{reporte['id']} actualizado a: {estado}."
-                )
+        def cambiar_estado(estado, justificacion=None):
+            if actualizar_estado_reporte(reporte["id"], estado, justificacion):
+                snackbar(f"Reporte #{reporte['id']} actualizado a: {estado}.")
                 mostrar_admin(1)
-
             else:
-                snackbar(
-                    "No se pudo actualizar el reporte.",
-                    error=True,
+                snackbar(obtener_ultimo_error_api() or "No se pudo actualizar el reporte.", error=True)
+
+        def solicitar_justificacion_rechazo():
+            justificacion = ft.TextField(
+                label="Justificación obligatoria",
+                multiline=True,
+                min_lines=2,
+                max_lines=4,
+            )
+
+            def confirmar_rechazo(e):
+                if not (justificacion.value or "").strip():
+                    snackbar("Escribe la justificación del rechazo.", error=True)
+                    return
+                page.pop_dialog()
+                cambiar_estado("Rechazado", justificacion.value.strip())
+
+            page.show_dialog(
+                ft.AlertDialog(
+                    modal=True,
+                    title=ft.Text("Rechazar reporte"),
+                    content=justificacion,
+                    actions=[
+                        ft.TextButton("Cancelar", on_click=lambda e: page.pop_dialog()),
+                        ft.TextButton("Confirmar rechazo", on_click=confirmar_rechazo),
+                    ],
                 )
+            )
+
+        def asignar_area_reporte(area_id):
+            if asignar_area(reporte["id"], area_id):
+                snackbar("Área responsable asignada correctamente.")
+                mostrar_admin(1)
+            else:
+                snackbar(obtener_ultimo_error_api() or "No se pudo asignar el área.", error=True)
 
         def eliminar_como_admin(rid):
             if eliminar_reporte(rid, es_admin=True):
@@ -2162,6 +2342,17 @@ def main(page: ft.Page):
                     "No se pudo eliminar el reporte.",
                     error=True,
                 )
+
+        areas_disponibles = obtener_areas()
+        selector_area = ft.Dropdown(
+            label="Seleccionar área responsable",
+            value=str(reporte.get("area_id")) if reporte.get("area_id") else None,
+            options=[
+                ft.DropdownOption(key=str(area["id"]), text=area["nombre"])
+                for area in areas_disponibles
+            ],
+            expand=True,
+        ) if areas_disponibles else None
 
         return tarjeta(
             ft.Column(
@@ -2189,27 +2380,47 @@ def main(page: ft.Page):
                         spacing=8,
                     ),
                     ft.Text(
+                        "Área responsable",
+                        size=11,
+                        weight=ft.FontWeight.BOLD,
+                        color=TEXTO_SECUNDARIO,
+                    ),
+                    selector_area if selector_area is not None else ft.Text("No hay áreas activas en MySQL.", size=11),
+                    ft.OutlinedButton(
+                        content="Asignar área",
+                        icon=ft.Icons.FACT_CHECK_OUTLINED,
+                        disabled=selector_area is None,
+                        on_click=lambda e: (
+                            asignar_area_reporte(int(selector_area.value))
+                            if selector_area is not None and selector_area.value
+                            else snackbar("Selecciona un área responsable.", error=True)
+                        ),
+                    ),
+                    ft.Text(
                         "Cambiar estado",
                         size=11,
                         weight=ft.FontWeight.BOLD,
                         color=TEXTO_SECUNDARIO,
                     ),
-                    ft.Row(
+                    ft.Column(
+                        spacing=0,
                         controls=[
-                            ft.TextButton(
-                                content="Pendiente",
-                                on_click=lambda e: cambiar_estado("Pendiente"),
+                            ft.Row(
+                                controls=[
+                                    ft.TextButton(content="Pendiente", on_click=lambda e: cambiar_estado("Pendiente")),
+                                    ft.TextButton(content="En revisión", on_click=lambda e: cambiar_estado("En revisión")),
+                                    ft.TextButton(content="En proceso", on_click=lambda e: cambiar_estado("En proceso de atención")),
+                                ],
+                                wrap=True,
                             ),
-                            ft.TextButton(
-                                content="En revisión",
-                                on_click=lambda e: cambiar_estado("En revisión"),
-                            ),
-                            ft.TextButton(
-                                content="Atendido",
-                                on_click=lambda e: cambiar_estado("Atendido"),
+                            ft.Row(
+                                controls=[
+                                    ft.TextButton(content="Atendido", on_click=lambda e: cambiar_estado("Atendido")),
+                                    ft.TextButton(content="Rechazado", on_click=lambda e: solicitar_justificacion_rechazo()),
+                                ],
+                                wrap=True,
                             ),
                         ],
-                        spacing=1,
                     ),
                 ],
             )
@@ -2555,3 +2766,4 @@ def main(page: ft.Page):
 
 if __name__ == "__main__":
     ft.run(main, assets_dir=str(ASSETS))
+
