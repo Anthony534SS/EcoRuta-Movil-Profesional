@@ -17,6 +17,7 @@ from cliente_api import (
     obtener_usuarios,
     crear_reporte,
     obtener_reportes,
+    obtener_mis_reportes,
     obtener_reporte,
     actualizar_estado_reporte,
     eliminar_reporte,
@@ -91,7 +92,7 @@ def main(page: ft.Page):
     modo_admin = {"activo": False}
     foto_actual = {"bytes": None}
     reporte_para_chat = {"id": None}
-    pantalla_actual = {"indice": 0}
+    pantalla_actual = {"indice": 0, "subvista": None}
 
     geo = ftg.Geolocator(
         configuration=ftg.GeolocatorConfiguration(
@@ -398,14 +399,10 @@ def main(page: ft.Page):
         )
 
         def entrar_admin(e):
-            print("--- Intentando login de administrador ---")
-
             admin = iniciar_sesion_admin(
                 email.value or "",
                 contrasena.value or "",
             )
-
-            print("Resultado recibido de la API:", admin)
 
             if not admin:
                 snackbar(
@@ -480,6 +477,7 @@ def main(page: ft.Page):
                                     size=12,
                                     color=TEXTO_SECUNDARIO,
                                 ),
+                                
                             ],
                         ),
                         bgcolor=VERDE_MUY_SUAVE,
@@ -512,18 +510,41 @@ def main(page: ft.Page):
             keyboard_type=ft.KeyboardType.EMAIL,
         )
 
+        mensaje_contrasena = ft.Text(
+            "Tu contraseña debe tener mínimo 8 caracteres.",
+            size=12,
+            color=ROJO,
+            visible=False,
+        )
+
+        def revisar_contrasena(e=None):
+            password = contrasena.value or ""
+            mensaje_contrasena.visible = bool(password) and len(password) < 8
+            page.update()
+
         contrasena = ft.TextField(
             label="Contraseña",
             prefix_icon=ft.Icons.LOCK_OUTLINE,
             password=True,
             can_reveal_password=True,
+            on_change=revisar_contrasena,
         )
 
         def registrar(e):
+            password = contrasena.value or ""
+
+            if len(password) < 8:
+                mensaje_contrasena.visible = True
+                page.update()
+                return
+
+            mensaje_contrasena.visible = False
+            page.update()
+
             correcto, texto = registrar_usuario(
                 nombre.value or "",
                 email.value or "",
-                contrasena.value or "",
+                password,
             )
 
             snackbar(texto, error=not correcto)
@@ -544,6 +565,7 @@ def main(page: ft.Page):
                                 nombre,
                                 email,
                                 contrasena,
+                                mensaje_contrasena,
                                 ft.Button(
                                     content="Crear mi cuenta",
                                     icon=ft.Icons.PERSON_ADD_ALT_1,
@@ -1244,6 +1266,8 @@ def main(page: ft.Page):
 
                     if modo_admin["activo"]:
                         mostrar_admin(1)
+                    elif pantalla_actual.get("subvista") == "mis_reportes":
+                        mostrar_mis_reportes()
                     else:
                         mostrar_pantalla(2)
 
@@ -1479,6 +1503,120 @@ def main(page: ft.Page):
             )
 
         return contenedor_pantalla(controles)
+
+    def pantalla_mis_reportes():
+        """Historial privado de la cuenta autenticada."""
+        reportes = obtener_mis_reportes()
+        controles = [
+            titulo_seccion(
+                "Mi historial de reportes",
+                "Consulta los reportes que has realizado con esta cuenta.",
+            )
+        ]
+
+        if reportes is None:
+            controles.append(
+                tarjeta(
+                    ft.Column(
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        spacing=10,
+                        controls=[
+                            ft.Icon(ft.Icons.CLOUD_OFF_OUTLINED, size=46, color=VERDE),
+                            ft.Text(
+                                "No pudimos cargar tu historial",
+                                weight=ft.FontWeight.BOLD,
+                                color=TEXTO,
+                                text_align=ft.TextAlign.CENTER,
+                            ),
+                            ft.Text(
+                                "Comprueba tu conexión e inténtalo nuevamente.",
+                                size=12,
+                                color=TEXTO_SECUNDARIO,
+                                text_align=ft.TextAlign.CENTER,
+                            ),
+                            ft.Button(
+                                content="Reintentar",
+                                icon=ft.Icons.REFRESH,
+                                bgcolor=VERDE,
+                                color=BLANCO,
+                                on_click=lambda e: mostrar_mis_reportes(),
+                            ),
+                        ],
+                    ),
+                    padding=20,
+                )
+            )
+        elif reportes:
+            controles.append(
+                tarjeta(
+                    ft.Row(
+                        controls=[
+                            ft.Icon(ft.Icons.FACT_CHECK_OUTLINED, color=VERDE, size=28),
+                            ft.Column(
+                                spacing=2,
+                                expand=True,
+                                controls=[
+                                    ft.Text("Reportes realizados", size=12, color=TEXTO_SECUNDARIO),
+                                    ft.Text(str(len(reportes)), size=22, weight=ft.FontWeight.BOLD, color=VERDE_OSCURO),
+                                ],
+                            ),
+                        ],
+                    ),
+                    bgcolor=VERDE_MUY_SUAVE,
+                )
+            )
+            controles.extend(tarjeta_resumen_reporte(reporte) for reporte in reportes)
+        else:
+            controles.append(
+                tarjeta(
+                    ft.Column(
+                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                        spacing=10,
+                        controls=[
+                            ft.Icon(ft.Icons.INBOX_OUTLINED, size=48, color=VERDE),
+                            ft.Text(
+                                "Aún no tienes reportes",
+                                weight=ft.FontWeight.BOLD,
+                                color=TEXTO,
+                            ),
+                            ft.Text(
+                                "Cuando publiques un reporte, aparecerá aquí con su estado y seguimiento.",
+                                size=12,
+                                color=TEXTO_SECUNDARIO,
+                                text_align=ft.TextAlign.CENTER,
+                            ),
+                            ft.Button(
+                                content="Crear mi primer reporte",
+                                icon=ft.Icons.ADD_A_PHOTO_OUTLINED,
+                                bgcolor=VERDE,
+                                color=BLANCO,
+                                on_click=lambda e: mostrar_pantalla(1),
+                            ),
+                        ],
+                    ),
+                    padding=20,
+                )
+            )
+
+        controles.append(
+            ft.TextButton(
+                content="Volver a mi perfil",
+                icon=ft.Icons.ARROW_BACK,
+                on_click=lambda e: mostrar_pantalla(4),
+            )
+        )
+        return contenedor_pantalla(controles)
+
+    def mostrar_mis_reportes():
+        if usuario_actual["datos"] is None or modo_admin["activo"]:
+            pantalla_login()
+            return
+        pantalla_actual["subvista"] = "mis_reportes"
+        page.clean()
+        page.appbar = barra_superior("Mis reportes", mostrar_perfil=False)
+        page.navigation_bar = crear_nav(4)
+        page.add(pantalla_mis_reportes())
+        page.update()
 
     # ------------------------------------------------------------------
     # CHAT
@@ -2069,10 +2207,18 @@ def main(page: ft.Page):
                                     color=VERDE,
                                 ),
                                 title=ft.Text("Mis reportes"),
-                                trailing=ft.Text(
-                                    str(stats["reportes"]),
-                                    weight=ft.FontWeight.BOLD,
+                                subtitle=ft.Text("Consulta tus reportes, estados e historial de seguimiento."),
+                                trailing=ft.Row(
+                                    tight=True,
+                                    controls=[
+                                        ft.Text(
+                                            str(stats["reportes"]),
+                                            weight=ft.FontWeight.BOLD,
+                                        ),
+                                        ft.Icon(ft.Icons.CHEVRON_RIGHT, color=TEXTO_SECUNDARIO),
+                                    ],
                                 ),
+                                on_click=lambda e: mostrar_mis_reportes(),
                             ),
                             ft.Divider(height=1),
                             ft.ListTile(
@@ -2735,6 +2881,7 @@ def main(page: ft.Page):
             return
 
         pantalla_actual["indice"] = indice
+        pantalla_actual["subvista"] = None
 
         page.clean()
 

@@ -8,13 +8,16 @@ from typing import Any
 import mysql.connector
 from mysql.connector import pooling
 
-ROOT = Path(__file__).resolve().parents[1]
+MODULE_DIR = Path(__file__).resolve().parent
+# En la aplicación completa, conexion.py está dentro de EcoRuta/; en Render
+# normalmente está en la raíz del repositorio. Ambos escenarios se resuelven.
+ROOT = MODULE_DIR.parent if MODULE_DIR.name.lower() == "ecoruta" else MODULE_DIR
 
 try:
     from dotenv import load_dotenv
-    # Acepta el .env de la raíz del proyecto o uno junto al backend.
-    load_dotenv(ROOT / ".env")
-    load_dotenv(Path(__file__).resolve().parent / ".env")
+    # Acepta .env en la raíz del proyecto o junto a estos módulos de backend.
+    load_dotenv(ROOT / ".env", override=False)
+    load_dotenv(MODULE_DIR / ".env", override=False)
 except ImportError:
     pass
 

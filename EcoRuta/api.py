@@ -173,7 +173,7 @@ def _consultar_reporte(cursor, reporte_id: int):
                   a.nombre AS area_nombre, u.nombre AS usuario_nombre, u.email AS usuario_email
            FROM reportes r
            JOIN usuarios u ON u.id_usuario = r.id_usuario
-           JOIN categorias_residuos c ON c.id_categoria = r.id_categoria
+           LEFT JOIN categorias_residuos c ON c.id_categoria = r.id_categoria
            LEFT JOIN areas_responsables a ON a.id_area = r.id_area
            WHERE r.id_reporte = %s""",
         (reporte_id,),
@@ -412,7 +412,7 @@ def listar_reportes(
                         a.nombre AS area_nombre, u.nombre AS usuario_nombre, u.email AS usuario_email
                  FROM reportes r
                  JOIN usuarios u ON u.id_usuario = r.id_usuario
-                 JOIN categorias_residuos c ON c.id_categoria = r.id_categoria
+                 LEFT JOIN categorias_residuos c ON c.id_categoria = r.id_categoria
                  LEFT JOIN areas_responsables a ON a.id_area = r.id_area"""
         parametros = []
         if usuario_id is not None:
@@ -427,7 +427,38 @@ def listar_reportes(
             _cerrar(conexion, cursor)
 
 
-@app.get("/reportes/{reporte_id}")
+@app.get("/reportes/mis-reportes")
+def listar_mis_reportes(
+    request: Request,
+    limite: int = Query(200, ge=1, le=500),
+    auth=Depends(usuario_actual),
+):
+    """Devuelve exclusivamente los reportes del propietario identificado por el JWT."""
+    conexion = cursor = None
+    try:
+        conexion, cursor = _abrir_cursor()
+        cursor.execute(
+            """SELECT r.id_reporte, r.id_usuario, r.id_categoria, r.id_area,
+                      r.imagen_url, r.latitud, r.longitud, r.ubicacion, r.descripcion,
+                      r.fecha_hora, r.estado, c.nombre AS categoria_nombre,
+                      a.nombre AS area_nombre, u.nombre AS usuario_nombre,
+                      u.email AS usuario_email
+               FROM reportes r
+               JOIN usuarios u ON u.id_usuario = r.id_usuario
+               LEFT JOIN categorias_residuos c ON c.id_categoria = r.id_categoria
+               LEFT JOIN areas_responsables a ON a.id_area = r.id_area
+               WHERE r.id_usuario = %s
+               ORDER BY r.fecha_hora DESC, r.id_reporte DESC
+               LIMIT %s""",
+            (auth["id"], limite),
+        )
+        return [_reporte_publico(fila, request) for fila in cursor.fetchall()]
+    finally:
+        if conexion:
+            _cerrar(conexion, cursor)
+
+
+@app.get("/reportes/{reporte_id:int}")
 def obtener_reporte(reporte_id: int, request: Request, auth=Depends(usuario_actual)):
     conexion = cursor = None
     try:
@@ -484,7 +515,7 @@ def crear_reporte(data: ReporteSchema, request: Request, auth=Depends(usuario_ac
             _cerrar(conexion, cursor)
 
 
-@app.delete("/reportes/{reporte_id}")
+@app.delete("/reportes/{reporte_id:int}")
 def eliminar_reporte(reporte_id: int, auth=Depends(usuario_actual)):
     conexion = cursor = None
     archivo = None
@@ -514,7 +545,7 @@ def eliminar_reporte(reporte_id: int, auth=Depends(usuario_actual)):
             _cerrar(conexion, cursor)
 
 
-@app.put("/reportes/{reporte_id}/estado")
+@app.put("/reportes/{reporte_id:int}/estado")
 def cambiar_estado(reporte_id: int, data: EstadoSchema, auth=Depends(exigir_admin)):
     if data.estado not in ESTADOS:
         raise HTTPException(status_code=422, detail="Estado de reporte no permitido.")
@@ -556,7 +587,7 @@ def cambiar_estado(reporte_id: int, data: EstadoSchema, auth=Depends(exigir_admi
             _cerrar(conexion, cursor)
 
 
-@app.get("/reportes/{reporte_id}/seguimiento")
+@app.get("/reportes/{reporte_id:int}/seguimiento")
 def consultar_seguimiento(reporte_id: int, auth=Depends(usuario_actual)):
     conexion = cursor = None
     try:
@@ -582,7 +613,7 @@ def consultar_seguimiento(reporte_id: int, auth=Depends(usuario_actual)):
             _cerrar(conexion, cursor)
 
 
-@app.post("/reportes/{reporte_id}/asignacion")
+@app.post("/reportes/{reporte_id:int}/asignacion")
 def asignar_area(reporte_id: int, data: AsignacionSchema, auth=Depends(exigir_admin)):
     conexion = cursor = None
     try:

@@ -1,0 +1,52 @@
+CORRECCION ECORUTA: HISTORIAL PERSONAL Y ACCESO ADMINISTRADOR
+
+1. HISTORIAL PERSONAL
+- La ruta GET /reportes/mis-reportes está declarada antes que las rutas por ID.
+- Todas las rutas dinámicas por ID usan el convertidor {reporte_id:int}; por tanto,
+  la palabra "mis-reportes" nunca se intenta convertir en un entero.
+- FastAPI filtra con el id_usuario obtenido del JWT.
+- La consulta usa LEFT JOIN a categorías para no ocultar un reporte si una categoría
+  relacionada fue desactivada o falta en datos históricos.
+- Flet diferencia historial vacío de fallo de conexión. No muestra detalles técnicos
+  del traceback ni errores de validación al ciudadano.
+
+2. ACCESO ADMINISTRADOR
+El acceso de administrador usa las credenciales que conserva la aplicación:
+  Correo: admin@ecoruta.mx
+  Contraseña: EcoRuta2026
+
+Para restablecer esa cuenta en la base existente ecoruta:
+1) Coloca el certificado CA de Aiven en la ruta local indicada por MYSQL_SSL_CA.
+2) En la raíz del proyecto, prepara .env con MYSQL_HOST, MYSQL_PORT, MYSQL_USER,
+   MYSQL_PASSWORD, MYSQL_DATABASE=ecoruta y MYSQL_SSL_CA. ECORUTA_SECRET_KEY también
+   debe estar configurada.
+3) Instala dependencias del backend: py -m pip install -r EcoRuta/requirements.txt
+4) Ejecuta desde la raíz: py EcoRuta/crear_admin.py
+5) El script actualiza solo el registro de admin@ecoruta.mx: conserva el ID y establece
+   el hash de la contraseña que muestra la aplicación, rol='admin' y activo=TRUE.
+   No elimina otros usuarios ni modifica reportes.
+
+3. DESPLIEGUE
+- En el repositorio GitHub que Render clona, reemplaza api.py, conexion.py, seguridad.py,
+  crear_admin.py y requirements.txt por los archivos de backend de este paquete.
+- Start Command: uvicorn api:app --host 0.0.0.0 --port $PORT
+- Actualiza en la aplicación móvil src/main.py y src/cliente_api.py con los archivos
+  del ZIP completo; vuelve a ejecutar Flet o generar el APK.
+
+4. IMPORTANTE SOBRE UN REPORTE EXISTENTE
+El historial muestra reportes cuyo id_usuario pertenece a la cuenta autenticada. Si el
+reporte que el usuario recuerda fue creado con otra cuenta, no aparecerá bajo esta cuenta.
+Para verificarlo en MySQL Workbench, usa una consulta de solo lectura:
+
+SELECT r.id_reporte, r.id_usuario, u.email, r.estado, r.fecha_hora
+FROM reportes r
+LEFT JOIN usuarios u ON u.id_usuario = r.id_usuario
+ORDER BY r.fecha_hora DESC, r.id_reporte DESC;
+
+Compara el email asociado al reporte con el correo usado al iniciar sesión.
+No se debe cambiar el propietario sin confirmar cuál es la cuenta correcta.
+
+5. PRUEBAS
+Comprobadas localmente en este paquete: sintaxis Python, definición de rutas,
+separación de estado vacío/error en la interfaz, y lógica de restablecimiento del admin.
+Pendiente: ejecución contra Aiven/Render y verificación de los IDs reales de tu cuenta.

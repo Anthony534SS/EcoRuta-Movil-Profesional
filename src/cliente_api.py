@@ -7,6 +7,8 @@ import os
 import urllib.error
 import urllib.parse
 import urllib.request
+import copy
+import time
 
 # Se conserva la URL de Render que ya utilizaba el primer ZIP.
 API_URL = os.getenv("API_BASE_URL", "https://ecoruta-api-antonio.onrender.com").strip().rstrip("/")
@@ -17,14 +19,20 @@ ADMIN_PASSWORD = "EcoRuta2026"
 
 _TOKEN: str | None = None
 _ULTIMO_ERROR_API: str | None = None
+_CACHE_GET = {}
+_CACHE_TTL = 12
 
 
 def obtener_ultimo_error_api():
     return _ULTIMO_ERROR_API
 
 
-def establecer_token(token: str | None):
+def establecer_token(token):
     global _TOKEN
+
+    if _TOKEN != token:
+        _CACHE_GET.clear()
+
     _TOKEN = token
 
 
@@ -33,15 +41,36 @@ def cerrar_sesion():
 
 
 def _peticion_http(endpoint, metodo="GET", datos=None, params=None, timeout=15):
-    """Envía JSON a FastAPI y conserva el último error para mostrarlo en Flet."""
     global _ULTIMO_ERROR_API
+
+    metodo = metodo.upper()
     url = f"{API_URL}{endpoint}"
+
     if params:
         url += "?" + urllib.parse.urlencode(
             {k: v for k, v in params.items() if v is not None}
         )
 
-    headers = {"Accept": "application/json", "Content-Type": "application/json"}
+    clave_cache = (url, _TOKEN)
+
+    # Consultar caché solamente para solicitudes GET.
+    if metodo == "GET":
+        guardado = _CACHE_GET.get(clave_cache)
+
+        if guardado:
+            tiempo_guardado, codigo, resultado = guardado
+
+            if time.monotonic() - tiempo_guardado < _CACHE_TTL:
+                _ULTIMO_ERROR_API = None
+                return codigo, copy.deepcopy(resultado)
+
+            _CACHE_GET.pop(clave_cache, None)
+
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+    }
+
     if _TOKEN:
         headers["Authorization"] = f"Bearer {_TOKEN}"
 
@@ -49,29 +78,78 @@ def _peticion_http(endpoint, metodo="GET", datos=None, params=None, timeout=15):
         json.dumps(datos, ensure_ascii=False).encode("utf-8")
         if datos is not None else None
     )
-    request = urllib.request.Request(url, data=payload, headers=headers, method=metodo)
+
+    request = urllib.request.Request(
+        url,
+        data=payload,
+        headers=headers,
+        method=metodo,
+    )
+
     try:
         with urllib.request.urlopen(request, timeout=timeout) as response:
+
             body = response.read().decode("utf-8", errors="replace")
+
+            resultado = json.loads(body) if body else {}
+
             _ULTIMO_ERROR_API = None
-            return response.status, json.loads(body) if body else {}
+
+            if metodo == "GET":
+                _CACHE_GET[clave_cache] = (
+                    time.monotonic(),
+                    response.status,
+                    copy.deepcopy(resultado),
+                )
+            else:
+                # Si se modifica información, renovar las consultas.
+                _CACHE_GET.clear()
+
+            return response.status, resultado
+
     except urllib.error.HTTPError as error:
+
+        if metodo != "GET":
+            _CACHE_GET.clear()
+
         body = error.read().decode("utf-8", errors="replace")
+
         try:
-            result = json.loads(body) if body else {}
+            resultado = json.loads(body) if body else {}
         except json.JSONDecodeError:
-            result = {"detail": body or f"HTTP {error.code}"}
-        detail = result.get("detail") if isinstance(result, dict) else None
-        _ULTIMO_ERROR_API = str(detail or f"La API respondió con HTTP {error.code}.")
+            resultado = {
+                "detail": body or f"HTTP {error.code}"
+            }
+
+        detalle = (
+            resultado.get("detail")
+            if isinstance(resultado, dict)
+            else None
+        )
+
+        _ULTIMO_ERROR_API = str(
+            detalle or f"La API respondió con HTTP {error.code}."
+        )
+
         if error.code == 401 and endpoint != "/auth/login":
             cerrar_sesion()
-        return error.code, result
-    except (urllib.error.URLError, TimeoutError, OSError, json.JSONDecodeError) as error:
+
+        return error.code, resultado
+
+    except (
+        urllib.error.URLError,
+        TimeoutError,
+        OSError,
+        json.JSONDecodeError,
+    ) as error:
+
         _ULTIMO_ERROR_API = (
             f"No se pudo conectar con FastAPI en {API_URL}. "
-            f"Comprueba el despliegue de Render y la URL. ({type(error).__name__})"
+            f"Comprueba Render. ({type(error).__name__})"
         )
+
         print(_ULTIMO_ERROR_API)
+
         return None, {"detail": _ULTIMO_ERROR_API}
 
 
@@ -93,10 +171,21 @@ def iniciar_sesion(email, contrasena):
 
 
 def iniciar_sesion_admin(email, contrasena):
+    """Inicia sesión y distingue una cuenta normal de una cuenta administradora."""
     usuario = iniciar_sesion(email, contrasena)
-    if usuario and usuario.get("rol") == "admin":
+
+    if not usuario:
+        return None
+
+    if str(usuario.get("rol", "")).strip().lower() == "admin":
         return usuario
+
     cerrar_sesion()
+    _set_error(
+        "El correo y la contraseña son válidos, pero esta cuenta no tiene "
+        "permisos de administrador. Inicializa la cuenta administrativa con "
+        "el archivo crear_admin.py y vuelve a intentarlo."
+    )
     return None
 
 
@@ -144,6 +233,24 @@ def obtener_reportes(limite=None, usuario_id=None):
         "/reportes", params={"limite": limite or 100, "usuario_id": usuario_id}, timeout=20
     )
     return datos if codigo == 200 and isinstance(datos, list) else []
+
+def obtener_mis_reportes(limite=200):
+    """Devuelve una lista vacía si no hay reportes y None si ocurrió un error."""
+    codigo, datos = _peticion_http(
+        "/reportes/mis-reportes",
+        params={"limite": limite},
+        timeout=20,
+    )
+    if codigo == 200 and isinstance(datos, list):
+        return datos
+
+    if codigo == 401:
+        _set_error("Tu sesión expiró. Inicia sesión nuevamente.")
+    elif codigo is None:
+        _set_error("No hay conexión con el servidor. Inténtalo nuevamente.")
+    else:
+        _set_error("No fue posible consultar el historial en este momento.")
+    return None
 
 
 def obtener_reporte(reporte_id):
