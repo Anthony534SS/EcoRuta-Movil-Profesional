@@ -9,11 +9,38 @@ import urllib.parse
 import urllib.request
 import copy
 import time
+from urllib.parse import urljoin
 
-# Se conserva la URL de Render que ya utilizaba el primer ZIP.
+
 API_URL = os.getenv("API_BASE_URL", "https://ecoruta-api-antonio.onrender.com").strip().rstrip("/")
 
-# Se conservan las credenciales de administrador configuradas en el proyecto original.
+def normalizar_imagen_reporte(reporte):
+    if not isinstance(reporte, dict):
+        return reporte
+
+    imagen = (
+        reporte.get("imagen")
+        or reporte.get("imagen_url")
+        or reporte.get("foto_url")
+    )
+
+    if imagen:
+        if isinstance(imagen, str):
+            if imagen.startswith("data:image/"):
+                reporte["imagen"] = imagen
+
+            elif imagen.startswith("http://") or imagen.startswith("https://"):
+                reporte["imagen"] = imagen
+
+            else:
+                reporte["imagen"] = urljoin(
+                    API_URL.rstrip("/") + "/",
+                    imagen.lstrip("/")
+                )
+
+    return reporte
+
+
 ADMIN_EMAIL = "admin@ecoruta.mx"
 ADMIN_PASSWORD = "EcoRuta2026"
 
@@ -229,10 +256,34 @@ def obtener_areas():
 # REPORTES
 
 def obtener_reportes(limite=None, usuario_id=None):
+    params = {}
+
+    if limite:
+        params["limite"] = limite
+
+    if usuario_id:
+        params["usuario_id"] = usuario_id
+
     codigo, datos = _peticion_http(
-        "/reportes", params={"limite": limite or 100, "usuario_id": usuario_id}, timeout=20
+        "/reportes",
+        metodo="GET",
+        params=params,
+        timeout=15,
     )
-    return datos if codigo == 200 and isinstance(datos, list) else []
+
+    if codigo == 200:
+        if isinstance(datos, dict) and "reportes" in datos:
+            reportes = datos["reportes"]
+        else:
+            reportes = datos
+
+        if isinstance(reportes, list):
+            return [
+                normalizar_imagen_reporte(r)
+                for r in reportes
+            ]
+
+    return []
 
 def obtener_mis_reportes(limite=200):
     """Devuelve una lista vacía si no hay reportes y None si ocurrió un error."""
@@ -308,8 +359,23 @@ def actualizar_estado_reporte(reporte_id, estado, justificacion=None):
 
 
 def obtener_seguimiento(reporte_id):
-    codigo, datos = _peticion_http(f"/reportes/{reporte_id}/seguimiento")
-    return datos if codigo == 200 and isinstance(datos, list) else []
+    codigo, datos = _peticion_http(
+        f"/reportes/{reporte_id}/seguimiento"
+    )
+
+    if codigo == 200 and isinstance(datos, list):
+        return datos
+
+    _set_error(
+        _detalle(
+            datos,
+            "No se pudo consultar el historial de seguimiento."
+        )
+    )
+
+    print("ERROR AL CONSULTAR SEGUIMIENTO:", codigo, datos)
+
+    return []
 
 
 def asignar_area(reporte_id, area_id, observaciones=None):
@@ -361,4 +427,5 @@ def obtener_estadisticas_admin():
 def _set_error(mensaje):
     global _ULTIMO_ERROR_API
     _ULTIMO_ERROR_API = str(mensaje)
+
 
