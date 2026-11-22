@@ -546,42 +546,131 @@ def eliminar_reporte(reporte_id: int, auth=Depends(usuario_actual)):
 
 
 @app.put("/reportes/{reporte_id:int}/estado")
-def cambiar_estado(reporte_id: int, data: EstadoSchema, auth=Depends(exigir_admin)):
+def cambiar_estado(
+    reporte_id: int,
+    data: EstadoSchema,
+    auth=Depends(exigir_admin)
+):
     if data.estado not in ESTADOS:
-        raise HTTPException(status_code=422, detail="Estado de reporte no permitido.")
+        raise HTTPException(
+            status_code=422,
+            detail="Estado de reporte no permitido."
+        )
+
     if data.estado == "Rechazado" and not (data.justificacion or "").strip():
-        raise HTTPException(status_code=422, detail="Para rechazar un reporte debes escribir una justificación.")
+        raise HTTPException(
+            status_code=422,
+            detail="Debes escribir una justificación para rechazar el reporte."
+        )
+
     conexion = cursor = None
+
     try:
         conexion, cursor = _abrir_cursor(dictionary=False)
-        cursor.execute("SELECT id_usuario, estado FROM reportes WHERE id_reporte = %s", (reporte_id,))
-        fila = cursor.fetchone()
-        if not fila:
-            raise HTTPException(status_code=404, detail="Reporte no encontrado.")
-        propietario_id, estado_anterior = fila
-        cursor.execute("UPDATE reportes SET estado = %s WHERE id_reporte = %s", (data.estado, reporte_id))
+
         cursor.execute(
-            """INSERT INTO seguimiento_reportes
-               (id_reporte, id_usuario, estado_anterior, estado_nuevo, observaciones)
-               VALUES (%s, %s, %s, %s, %s)""",
-            (reporte_id, auth["id"], estado_anterior, data.estado, (data.justificacion or "").strip() or None),
+            """
+            SELECT id_usuario, estado
+            FROM reportes
+            WHERE id_reporte = %s
+            """,
+            (reporte_id,)
         )
-        texto = data.justificacion.strip() if data.justificacion else f"El estado cambió a: {data.estado}."
-        titulo = "Actualización de tu reporte"
+
+        reporte = cursor.fetchone()
+
+        if not reporte:
+            raise HTTPException(
+                status_code=404,
+                detail="Reporte no encontrado."
+            )
+
+        propietario_id, estado_anterior = reporte
+
+        # Actualizar el estado actual.
         cursor.execute(
-            "INSERT INTO notificaciones (id_usuario, id_reporte, titulo, contenido, leida) VALUES (%s, %s, %s, %s, FALSE)",
-            (propietario_id, reporte_id, titulo, texto),
+            """
+            UPDATE reportes
+            SET estado = %s
+            WHERE id_reporte = %s
+            """,
+            (data.estado, reporte_id)
         )
+
+        # Evitar guardar observaciones vacías.
+        observaciones = (
+            (data.justificacion or "").strip()
+            or f"El administrador cambió el estado a: {data.estado}."
+        )
+
+        # Guardar el seguimiento.
+        cursor.execute(
+            """
+            INSERT INTO seguimiento_reportes
+            (
+                id_reporte,
+                id_usuario,
+                estado_anterior,
+                estado_nuevo,
+                observaciones,
+                fecha_hora
+            )
+            VALUES (%s, %s, %s, %s, %s, NOW())
+            """,
+            (
+                reporte_id,
+                auth["id"],
+                estado_anterior,
+                data.estado,
+                observaciones
+            )
+        )
+
+        # Registrar notificación.
+        cursor.execute(
+            """
+            INSERT INTO notificaciones
+            (
+                id_usuario,
+                id_reporte,
+                titulo,
+                contenido,
+                leida,
+                fecha_hora
+            )
+            VALUES (%s, %s, %s, %s, FALSE, NOW())
+            """,
+            (
+                propietario_id,
+                reporte_id,
+                "Actualización de tu reporte",
+                observaciones
+            )
+        )
+
         conexion.commit()
-        return {"ok": True, "mensaje": "Estado actualizado correctamente."}
+
+        return {
+            "ok": True,
+            "mensaje": "Estado actualizado y registrado correctamente."
+        }
+
     except HTTPException:
         if conexion:
             conexion.rollback()
         raise
-    except Error:
+
+    except Error as error:
         if conexion:
             conexion.rollback()
-        raise HTTPException(status_code=500, detail="No se pudo actualizar el estado del reporte.")
+
+        print("ERROR AL CAMBIAR ESTADO:", error)
+
+        raise HTTPException(
+            status_code=500,
+            detail="No se pudo registrar el cambio de estado."
+        )
+
     finally:
         if conexion:
             _cerrar(conexion, cursor)
@@ -589,25 +678,117 @@ def cambiar_estado(reporte_id: int, data: EstadoSchema, auth=Depends(exigir_admi
 
 @app.get("/reportes/{reporte_id:int}/seguimiento")
 def consultar_seguimiento(reporte_id: int, auth=Depends(usuario_actual)):
+
     conexion = cursor = None
+
     try:
         conexion, cursor = _abrir_cursor()
-        cursor.execute("SELECT id_usuario FROM reportes WHERE id_reporte = %s", (reporte_id,))
-        reporte = cursor.fetchone()
-        if not reporte:
-            raise HTTPException(status_code=404, detail="Reporte no encontrado.")
-        if auth["rol"] != "admin" and int(reporte["id_usuario"]) != auth["id"]:
-            raise HTTPException(status_code=403, detail="Solo puedes consultar el seguimiento de tus propios reportes.")
+
         cursor.execute(
-            """SELECT s.id_seguimiento AS id, s.id_reporte AS reporte_id,
-                      s.estado_anterior, s.estado_nuevo AS estado, s.observaciones AS observacion,
-                      s.fecha_hora, u.nombre AS usuario_nombre
-               FROM seguimiento_reportes s
-               LEFT JOIN usuarios u ON u.id_usuario = s.id_usuario
-               WHERE s.id_reporte = %s ORDER BY s.fecha_hora, s.id_seguimiento""",
-            (reporte_id,),
+            """
+            SELECT id_usuario
+            FROM reportes
+            WHERE id_reporte = %s
+            """,
+            (reporte_id,)
         )
-        return cursor.fetchall()
+
+        reporte = cursor.fetchone()
+
+        if not reporte:
+            raise HTTPException(
+                status_code=404,
+                detail="Reporte no encontrado."
+            )
+
+        if auth["rol"] != "admin" and int(reporte["id_usuario"]) != auth["id"]:
+            raise HTTPException(
+                status_code=403,
+                detail="No tienes permiso para consultar este reporte."
+            )
+
+        # Historial de cambios de estado.
+        cursor.execute(
+            """
+            SELECT
+                s.id_seguimiento AS id,
+                s.id_reporte AS reporte_id,
+                s.estado_anterior,
+                s.estado_nuevo AS estado,
+                s.observaciones AS observacion,
+                s.fecha_hora,
+                u.nombre AS usuario_nombre,
+                'estado' AS tipo_evento,
+                NULL AS area_id,
+                NULL AS area_nombre,
+                NULL AS institucion
+
+            FROM seguimiento_reportes s
+
+            LEFT JOIN usuarios u
+                ON u.id_usuario = s.id_usuario
+
+            WHERE s.id_reporte = %s
+            """,
+            (reporte_id,)
+        )
+
+        historial_estados = cursor.fetchall()
+
+        # Historial de asignaciones de áreas.
+        cursor.execute(
+            """
+            SELECT
+                a.id_asignacion AS id,
+                a.id_reporte AS reporte_id,
+                'Área responsable asignada' AS estado,
+                a.observaciones AS observacion,
+                a.fecha_asignacion AS fecha_hora,
+                u.nombre AS usuario_nombre,
+                'asignacion' AS tipo_evento,
+                a.id_area AS area_id,
+                ar.nombre AS area_nombre,
+                ar.institucion AS institucion
+
+            FROM asignaciones_reportes a
+
+            INNER JOIN areas_responsables ar
+                ON ar.id_area = a.id_area
+
+            LEFT JOIN usuarios u
+                ON u.id_usuario = a.id_usuario_asignador
+
+            WHERE a.id_reporte = %s
+            """,
+            (reporte_id,)
+        )
+
+        historial_areas = cursor.fetchall()
+
+        # Combinar los dos historiales.
+        historial = historial_estados + historial_areas
+
+        # Convertir fechas a texto.
+        for evento in historial:
+            evento["fecha_hora"] = _fecha_texto(
+                evento.get("fecha_hora")
+            )
+
+        # Orden cronológico.
+        historial.sort(
+            key=lambda x: (
+                x.get("fecha_hora") or "",
+                int(x.get("id") or 0)
+            )
+        )
+
+        print(
+            f"HISTORIAL REPORTE {reporte_id}:",
+            historial
+        )
+
+        return historial
+
     finally:
         if conexion:
             _cerrar(conexion, cursor)
@@ -616,42 +797,122 @@ def consultar_seguimiento(reporte_id: int, auth=Depends(usuario_actual)):
 @app.post("/reportes/{reporte_id:int}/asignacion")
 def asignar_area(reporte_id: int, data: AsignacionSchema, auth=Depends(exigir_admin)):
     conexion = cursor = None
+
     try:
         conexion, cursor = _abrir_cursor(dictionary=False)
-        cursor.execute("SELECT id_usuario, estado FROM reportes WHERE id_reporte = %s", (reporte_id,))
+
+        cursor.execute(
+            """
+            SELECT id_usuario
+            FROM reportes
+            WHERE id_reporte = %s
+            """,
+            (reporte_id,)
+        )
+
         reporte = cursor.fetchone()
+
         if not reporte:
             raise HTTPException(status_code=404, detail="Reporte no encontrado.")
-        cursor.execute("SELECT id_area FROM areas_responsables WHERE id_area = %s AND activo = TRUE", (data.area_id,))
-        if not cursor.fetchone():
-            raise HTTPException(status_code=404, detail="Área responsable no encontrada o inactiva.")
-        cursor.execute("UPDATE reportes SET id_area = %s WHERE id_reporte = %s", (data.area_id, reporte_id))
+
         cursor.execute(
-            """INSERT INTO asignaciones_reportes
-               (id_reporte, id_area, id_usuario_asignador, observaciones)
-               VALUES (%s, %s, %s, %s)""",
-            (reporte_id, data.area_id, auth["id"], (data.observaciones or "").strip() or None),
+            """
+            SELECT nombre, institucion
+            FROM areas_responsables
+            WHERE id_area = %s AND activo = TRUE
+            """,
+            (data.area_id,)
         )
+
+        area = cursor.fetchone()
+
+        if not area:
+            raise HTTPException(status_code=404, detail="Área no encontrada.")
+
+        propietario_id = reporte[0]
+        nombre_area = area[0]
+        institucion = area[1]
+
+        observaciones = (
+            (data.observaciones or "").strip()
+            or f"El administrador asignó el reporte al área {nombre_area}."
+        )
+
         cursor.execute(
-            """INSERT INTO seguimiento_reportes
-               (id_reporte, id_usuario, estado_anterior, estado_nuevo, observaciones)
-               VALUES (%s, %s, %s, %s, %s)""",
-            (reporte_id, auth["id"], reporte[1], reporte[1], (data.observaciones or "Área responsable asignada.").strip()),
+            """
+            UPDATE reportes
+            SET id_area = %s
+            WHERE id_reporte = %s
+            """,
+            (data.area_id, reporte_id)
         )
+
+        # Guardar la asignación histórica.
         cursor.execute(
-            "INSERT INTO notificaciones (id_usuario, id_reporte, titulo, contenido, leida) VALUES (%s, %s, %s, %s, FALSE)",
-            (reporte[0], reporte_id, "Área responsable asignada", "Tu reporte fue canalizado al área correspondiente."),
+            """
+            INSERT INTO asignaciones_reportes
+            (
+                id_reporte,
+                id_area,
+                id_usuario_asignador,
+                fecha_asignacion,
+                observaciones
+            )
+            VALUES (%s, %s, %s, NOW(), %s)
+            """,
+            (
+                reporte_id,
+                data.area_id,
+                auth["id"],
+                observaciones
+            )
         )
+
+        # Notificar al propietario.
+        cursor.execute(
+            """
+            INSERT INTO notificaciones
+            (
+                id_usuario,
+                id_reporte,
+                titulo,
+                contenido,
+                leida,
+                fecha_hora
+            )
+            VALUES (%s, %s, %s, %s, FALSE, NOW())
+            """,
+            (
+                propietario_id,
+                reporte_id,
+                "Área responsable asignada",
+                f"Tu reporte fue asignado a {nombre_area}, {institucion}."
+            )
+        )
+
         conexion.commit()
-        return {"ok": True, "mensaje": "Área responsable asignada correctamente."}
+
+        return {
+            "ok": True,
+            "mensaje": "Área responsable asignada correctamente."
+        }
+
     except HTTPException:
         if conexion:
             conexion.rollback()
         raise
-    except Error:
+
+    except Error as error:
         if conexion:
             conexion.rollback()
-        raise HTTPException(status_code=500, detail="No se pudo asignar el área responsable.")
+
+        print("ERROR AL ASIGNAR ÁREA:", error)
+
+        raise HTTPException(
+            status_code=500,
+            detail=f"Error al guardar la asignación: {error}"
+        )
+
     finally:
         if conexion:
             _cerrar(conexion, cursor)
@@ -883,3 +1144,4 @@ def obtener_media(nombre_archivo: str):
         raise HTTPException(status_code=404, detail="Imagen no encontrada.")
     media_type = "image/jpeg" if archivo.suffix == ".jpg" else "image/png"
     return FileResponse(archivo, media_type=media_type, headers={"Cache-Control": "public, max-age=86400"})
+
